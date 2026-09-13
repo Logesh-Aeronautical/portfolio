@@ -1,0 +1,8 @@
+﻿{
+  "rewrites": [
+    {
+      "source": "/((?!assets/|cad/|guide.html|robots.txt|sitemap.xml).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
