@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Menu, X, Github, Mail, ShieldCheck } from 'lucide-react';
 import { CANDIDATE } from '../data/portfolioData';
 
@@ -37,6 +37,9 @@ export default function Navbar() {
           <a href="#case-study-embedded" className="text-slate-300 hover:text-cyan-400 transition-colors">04. Avionics</a>
           <a href="#aero-graphs" className="text-slate-300 hover:text-cyan-400 transition-colors">Aero Studies (18)</a>
           <a href="#skills" className="text-slate-300 hover:text-cyan-400 transition-colors">Skills</a>
+          <a href="guide.html" target="_blank" rel="noopener noreferrer" className="px-2.5 py-1 rounded-lg bg-sky-950/80 text-cyan-300 border border-cyan-800/40 hover:bg-cyan-900/50 hover:text-white transition-all flex items-center gap-1">
+            <span>Guide (PDF)</span>
+          </a>
         </nav>
 
         {/* Action Buttons */}

@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { ArrowDownRight, Compass, Layers, Cpu, Wind, FileText, CheckCircle2 } from 'lucide-react';
 import { CANDIDATE } from '../data/portfolioData';
 
@@ -44,6 +44,16 @@ export default function Hero() {
             className="px-6 py-3.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 hover:text-white font-medium text-xs sm:text-sm font-mono border border-slate-700/80 hover:border-sky-500/50 hover:-translate-y-0.5 transition-all flex items-center gap-2"
           >
             <span>Examine 3 Focused Case Studies</span>
+          </a>
+
+          <a
+            href="guide.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-5 py-3.5 rounded-xl bg-sky-950/60 hover:bg-sky-900/60 text-cyan-300 hover:text-white font-medium text-xs sm:text-sm font-mono border border-cyan-800/50 hover:border-cyan-400 hover:-translate-y-0.5 transition-all flex items-center gap-2"
+          >
+            <FileText className="w-4 h-4 text-cyan-400" />
+            <span>Master Project Guide (PDF)</span>
           </a>
         </div>
 
