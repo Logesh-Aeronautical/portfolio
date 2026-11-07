@@ -8,12 +8,15 @@ export default {
     extend: {
       colors: {
         brand: {
-          dark: '#070b14',
-          surface: '#0d1527',
-          card: 'rgba(15, 23, 42, 0.8)',
-          border: 'rgba(56, 189, 248, 0.2)',
-          cyan: '#00f0ff',
-          sky: '#38bdf8'
+          dark: '#060a07',
+          surface: '#0b140e',
+          card: 'rgba(12, 22, 15, 0.82)',
+          border: 'rgba(234, 179, 8, 0.25)',
+          yellow: '#facc15',
+          amber: '#eab308',
+          green: '#22c55e',
+          emerald: '#10b981',
+          lime: '#84cc16'
         }
       },
       fontFamily: {

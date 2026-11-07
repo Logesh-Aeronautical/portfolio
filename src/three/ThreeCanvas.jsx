@@ -1,19 +1,19 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { Box, Eye, Wind, RefreshCw, Upload, Camera, Layers, Info, CheckCircle2 } from 'lucide-react';
+import { Box, Eye, Wind, RefreshCw, Upload, Camera, Layers, Flame, Shield, CheckCircle2 } from 'lucide-react';
 
-export default function ThreeCanvas({ initialModel = 'jet' }) {
+export default function ThreeCanvas({ initialModel = 'nozzle' }) {
   const mountRef = useRef(null);
   const [activeModel, setActiveModel] = useState(initialModel);
   const [wireframe, setWireframe] = useState(false);
   const [showAirflow, setShowAirflow] = useState(true);
   const [exploded, setExploded] = useState(false);
   const [customFileName, setCustomFileName] = useState(null);
-  const [modelStats, setModelStats] = useState({ format: 'Parametric', triangles: 4820, dims: '19.5m × 14.0m × 4.2m' });
+  const [modelStats, setModelStats] = useState({ format: 'Propulsion CAD', triangles: 5120, dims: '2.8m (L) × 1.4m (Ø)' });
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -33,11 +33,11 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
 
     // 1. Scene Setup
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x070b14);
+    scene.background = new THREE.Color(0x060a07);
     sceneRef.current = scene;
 
-    // Aerospace Coordinate Ground Grid
-    const grid = new THREE.GridHelper(24, 24, 0x00f0ff, 0x1e293b);
+    // Tactical HUD Ground Grid (Yellow & Deep Green)
+    const grid = new THREE.GridHelper(24, 24, 0xfacc15, 0x182c1e);
     grid.position.y = -2.2;
     scene.add(grid);
 
@@ -48,14 +48,14 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
       0.1,
       1000
     );
-    camera.position.set(9, 6, 11);
+    camera.position.set(7, 5, 9);
     cameraRef.current = camera;
 
     // 3. WebGL Renderer
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
-      preserveDrawingBuffer: true, // Allows high-res screenshot capture
+      preserveDrawingBuffer: true,
       powerPreference: "high-performance"
     });
     renderer.setSize(currentMount.clientWidth, currentMount.clientHeight);
@@ -63,47 +63,52 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
-    currentMount.appendChild(renderer.domElement);
+    renderer.toneMappingExposure = 1.15;
     rendererRef.current = renderer;
 
-    // 4. Orbit Controls
+    currentMount.replaceChildren(renderer.domElement);
+
+    // 4. Studio Lighting Rig (Yellow Key Light & Green Fill Light)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+
+    const dirLight1 = new THREE.DirectionalLight(0xfef08a, 2.0); // Warm yellow sunlight
+    dirLight1.position.set(10, 15, 10);
+    scene.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(0x4ade80, 1.2); // Green rim light
+    dirLight2.position.set(-10, -5, -10);
+    scene.add(dirLight2);
+
+    const pointLight = new THREE.PointLight(0xfacc15, 2.0, 30);
+    pointLight.position.set(0, 3, 5);
+    scene.add(pointLight);
+
+    // 5. OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.maxDistance = 30;
-    controls.minDistance = 1.5;
+    controls.maxPolarAngle = Math.PI / 2 + 0.1;
+    controls.minDistance = 2.5;
+    controls.maxDistance = 40;
     controlsRef.current = controls;
 
-    // 5. Studio Lighting Setup
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
-    scene.add(ambientLight);
-
-    const keyLight = new THREE.DirectionalLight(0x38bdf8, 2.6);
-    keyLight.position.set(12, 18, 12);
-    scene.add(keyLight);
-
-    const fillLight = new THREE.DirectionalLight(0x00f0ff, 1.4);
-    fillLight.position.set(-12, -4, -12);
-    scene.add(fillLight);
-
-    const rimLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    rimLight.position.set(0, 10, -15);
-    scene.add(rimLight);
-
-    // 6. Physically Accurate Aerodynamic Streamlines
-    // Streamline particles that physically travel along the true airflow vector
-    const streamlineCount = 240;
+    // 6. Dual-Stream Streamline Particle System (Yellow: Hot Core Flow, Green: Coolant Bleed Air)
+    const streamlineCount = 380;
     const streamGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(streamlineCount * 3);
     const initialPositions = new Float32Array(streamlineCount * 3);
+    const colors = new Float32Array(streamlineCount * 3);
     const speeds = new Float32Array(streamlineCount);
+    const streamTypes = new Uint8Array(streamlineCount); // 0 = Core (Yellow), 1 = Bleed Coolant (Green)
 
     for (let i = 0; i < streamlineCount; i++) {
-      // Inflow plane ahead of the aircraft nose
-      const x = 7 + Math.random() * 4;
-      const y = (Math.random() - 0.5) * 5;
-      const z = (Math.random() - 0.5) * 8;
+      const isBleed = i % 3 === 0;
+      streamTypes[i] = isBleed ? 1 : 0;
+
+      const x = 6 + Math.random() * 4;
+      const y = (Math.random() - 0.5) * 4;
+      const z = (Math.random() - 0.5) * 4;
 
       positions[i * 3] = x;
       positions[i * 3 + 1] = y;
@@ -113,15 +118,29 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
       initialPositions[i * 3 + 1] = y;
       initialPositions[i * 3 + 2] = z;
 
-      speeds[i] = 0.12 + Math.random() * 0.12;
+      speeds[i] = 0.14 + Math.random() * 0.14;
+
+      if (isBleed) {
+        // Neon Coolant Green
+        colors[i * 3] = 0.13;
+        colors[i * 3 + 1] = 0.77;
+        colors[i * 3 + 2] = 0.37;
+      } else {
+        // High-Temp Amber / Yellow Core
+        colors[i * 3] = 0.98;
+        colors[i * 3 + 1] = 0.80;
+        colors[i * 3 + 2] = 0.08;
+      }
     }
 
     streamGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    streamGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
     const streamMat = new THREE.PointsMaterial({
-      color: 0x00f0ff,
-      size: 0.11,
+      size: 0.12,
+      vertexColors: true,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.85,
       blending: THREE.AdditiveBlending
     });
     const streamlinePoints = new THREE.Points(streamGeo, streamMat);
@@ -131,16 +150,17 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
       mesh: streamlinePoints,
       initial: initialPositions,
       speeds: speeds,
+      types: streamTypes,
       count: streamlineCount
     };
 
-    // 7. Render Loop with Physical Streamline Deflection
+    // 7. Render Loop with Physical Fluid / Gas Dynamics
     let clock = new THREE.Clock();
     const animate = () => {
       animFrameIdRef.current = requestAnimationFrame(animate);
       const delta = clock.getDelta();
 
-      // Spin Drone Propellers
+      // Spin Drone Propellers if loaded
       if (propellersRef.current && propellersRef.current.length > 0) {
         propellersRef.current.forEach((prop, idx) => {
           const dir = idx % 2 === 0 ? 1 : -1;
@@ -148,74 +168,88 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
         });
       }
 
-      // Model-Specific Aerodynamic Airflow Physics
+      // Model-Specific Streamline Physics
       if (airflowStreamlinesRef.current && airflowStreamlinesRef.current.mesh.visible) {
         const pos = airflowStreamlinesRef.current.mesh.geometry.attributes.position.array;
         const spd = airflowStreamlinesRef.current.speeds;
+        const types = airflowStreamlinesRef.current.types;
         const count = airflowStreamlinesRef.current.count;
 
         for (let i = 0; i < count; i++) {
           const idx = i * 3;
+          const currX = pos[idx];
+          const currY = pos[idx + 1];
+          const currZ = pos[idx + 2];
 
-          if (activeModel === 'drone') {
-            // ----------------------------------------------------
-            // MULTIROTOR DOWNWASH PHYSICS: Flow enters from +Y and accelerates DOWN to -Y
-            // ----------------------------------------------------
-            pos[idx + 1] -= spd[i] * 1.6; // Downward velocity
-            
-            // Expand outward conical downwash below rotors
-            if (pos[idx + 1] < 0) {
-              pos[idx] += (pos[idx] > 0 ? 0.02 : -0.02);
-              pos[idx + 2] += (pos[idx + 2] > 0 ? 0.02 : -0.02);
+          if (activeModel === 'nozzle') {
+            // JET NOZZLE GAS DYNAMICS: Core flow (Yellow) accelerates through convergent-divergent duct
+            // Coolant Bleed Air (Green) wraps annular bypass jacket and enters liner
+            const r = Math.sqrt(currY * currY + currZ * currZ);
+
+            if (types[i] === 1) {
+              // Bleed Coolant Circuit: Follows outer annular jacket (r ~ 1.1)
+              pos[idx] -= spd[i] * 1.2;
+              if (currX > -0.5 && currX < 2.0) {
+                // Pinched along cooling duct
+                const targetR = 1.15;
+                if (r > 0.1) {
+                  pos[idx + 1] += (currY / r) * (targetR - r) * 0.08;
+                  pos[idx + 2] += (currZ / r) * (targetR - r) * 0.08;
+                }
+              }
+            } else {
+              // Hot Core Exhaust Gas: Choked at throat (X ~ 0), expands supersonically (X < 0)
+              const throatSpeed = currX < 0 ? spd[i] * 2.8 : spd[i] * 1.5;
+              pos[idx] -= throatSpeed;
+
+              // Converge towards throat at X > 0, expand at X < 0
+              if (currX > 0 && currX < 2.5 && r > 0.45) {
+                pos[idx + 1] *= 0.96;
+                pos[idx + 2] *= 0.96;
+              } else if (currX <= 0 && currX > -3.5) {
+                // Supersonic expansion plume angle
+                pos[idx + 1] += (currY > 0 ? 0.025 : -0.025);
+                pos[idx + 2] += (currZ > 0 ? 0.025 : -0.025);
+              }
             }
 
-            // Reset when below ground plane
-            if (pos[idx + 1] < -2.2) {
-              pos[idx] = (Math.random() - 0.5) * 6;
-              pos[idx + 1] = 4 + Math.random() * 2;
-              pos[idx + 2] = (Math.random() - 0.5) * 6;
+            // Reset when far behind nozzle
+            if (pos[idx] < -7.0) {
+              pos[idx] = 6.0 + Math.random() * 2.5;
+              pos[idx + 1] = (Math.random() - 0.5) * 3.0;
+              pos[idx + 2] = (Math.random() - 0.5) * 3.0;
+            }
+
+          } else if (activeModel === 'skid') {
+            // HELICOPTER SKID: Dynamic ground ground effect & airflow across cross-members
+            pos[idx] -= spd[i] * 1.3;
+
+            // Deflect over forward cross-tube and landing skids
+            if (Math.abs(currX) < 1.8 && currY < -0.4 && currY > -1.8) {
+              pos[idx + 1] += 0.02; // Ground boundary layer displacement
+            }
+
+            if (pos[idx] < -7.5) {
+              pos[idx] = 6.5 + Math.random() * 2.0;
+              pos[idx + 1] = (Math.random() - 0.5) * 3.5;
+              pos[idx + 2] = (Math.random() - 0.5) * 4.5;
             }
 
           } else {
-            // ----------------------------------------------------
-            // AIRCRAFT / JET / AIRFOIL STREAMLINE PHYSICS: Flow travels NOSE (+X) to TAIL (-X)
-            // ----------------------------------------------------
-            pos[idx] -= spd[i] * 1.5; // True direction: Inflow from +X to -X
-
-            const currX = pos[idx];
-            const currY = pos[idx + 1];
-            const currZ = pos[idx + 2];
-
-            // 1. Radome / Canopy Deflection around the nose (X ~ 3.5 to 0)
-            if (currX < 3.2 && currX > -1.5) {
+            // JET / AIRFOIL STREAMLINES
+            pos[idx] -= spd[i] * 1.5;
+            if (currX < 3.0 && currX > -1.5) {
               const distToCenter = Math.sqrt(currY * currY + currZ * currZ);
-              if (distToCenter < 1.2) {
-                // Deflect upwards over the cockpit canopy
+              if (distToCenter < 1.1) {
                 pos[idx + 1] += 0.025;
-                // Deflect laterally along the chine
-                pos[idx + 2] += currZ > 0 ? 0.03 : -0.03;
+                pos[idx + 2] += currZ > 0 ? 0.025 : -0.025;
               }
             }
 
-            // 2. Swept Delta Wing Leading Edge Outwash (X ~ 1.5 to -2.5)
-            if (currX < 1.5 && currX > -2.5) {
-              const wingY = Math.abs(currY);
-              if (wingY < 0.8 && Math.abs(currZ) < 4.0) {
-                // Outwash along the 45 degree sweep
-                pos[idx + 2] += currZ > 0 ? 0.02 : -0.02;
-              }
-            }
-
-            // 3. Afterburner Exhaust Plume Acceleration (Behind engines at X < -3.2)
-            if (currX < -3.2 && Math.abs(currZ) < 1.0 && Math.abs(currY) < 0.6) {
-              pos[idx] -= spd[i] * 2.2; // Supersonic jet exhaust acceleration
-            }
-
-            // Reset when passed far behind tail
-            if (pos[idx] < -8.5) {
-              pos[idx] = 8.0 + Math.random() * 2.5; // Re-inject in front of nose
-              pos[idx + 1] = (Math.random() - 0.5) * 4.5;
-              pos[idx + 2] = (Math.random() - 0.5) * 7.5;
+            if (pos[idx] < -8.0) {
+              pos[idx] = 7.5 + Math.random() * 2.5;
+              pos[idx + 1] = (Math.random() - 0.5) * 4.0;
+              pos[idx + 2] = (Math.random() - 0.5) * 6.5;
             }
           }
         }
@@ -228,7 +262,6 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
     };
     animate();
 
-    // 8. Dynamic Resize
     const handleResize = () => {
       if (!currentMount || !renderer || !camera) return;
       camera.aspect = currentMount.clientWidth / currentMount.clientHeight;
@@ -249,7 +282,7 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
 
   // Update Airflow Visibility
   useEffect(() => {
-    if (airflowStreamlinesRef.current) {
+    if (airflowStreamlinesRef.current && airflowStreamlinesRef.current.mesh) {
       airflowStreamlinesRef.current.mesh.visible = showAirflow;
     }
   }, [showAirflow]);
@@ -272,7 +305,7 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
     if (!scene) return;
     clearCurrentObject();
 
-    const matColor = wireframe ? 0x00f0ff : 0x1e293b;
+    const matColor = wireframe ? 0xfacc15 : 0x18241b;
     const bodyMat = new THREE.MeshStandardMaterial({
       color: matColor,
       roughness: 0.25,
@@ -281,58 +314,207 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
     });
 
     const accentMat = new THREE.MeshStandardMaterial({
-      color: 0x0284c7,
+      color: 0xeab308, // Gold / Amber
       roughness: 0.3,
       metalness: 0.9,
       wireframe: wireframe
     });
 
+    const greenMat = new THREE.MeshStandardMaterial({
+      color: 0x22c55e, // Emerald Green
+      roughness: 0.3,
+      metalness: 0.8,
+      wireframe: wireframe
+    });
+
     const glowMat = new THREE.MeshBasicMaterial({
-      color: 0x00f0ff,
+      color: 0xfacc15,
       wireframe: wireframe
     });
 
-    const glassMat = new THREE.MeshPhysicalMaterial({
-      color: 0x00f0ff,
+    const translucentLinerMat = new THREE.MeshPhysicalMaterial({
+      color: 0x22c55e,
       transparent: true,
-      opacity: 0.65,
-      roughness: 0.1,
-      metalness: 0.1,
-      transmission: 0.9,
+      opacity: 0.55,
+      roughness: 0.2,
+      metalness: 0.3,
+      transmission: 0.8,
       wireframe: wireframe
     });
 
-    if (modelType === 'jet') {
+    if (modelType === 'nozzle') {
+      // ----------------------------------------------------
+      // JET ENGINE NOZZLE WITH BLEED AIR COOLING SYSTEM
+      // ----------------------------------------------------
+      setModelStats({
+        format: 'Autodesk Inventor CAD / CFD CHT',
+        triangles: 8460,
+        dims: '2.8m (L) × 1.35m (Outer Ø)'
+      });
+
+      const nozzleGroup = new THREE.Group();
+
+      // 1. Outer Annular Bleed Air Casing (Transparent / Cutaway)
+      const outerCasingGeo = new THREE.CylinderGeometry(1.2, 1.35, 3.6, 28, 1, true);
+      outerCasingGeo.rotateZ(Math.PI / 2);
+      const outerCasing = new THREE.Mesh(outerCasingGeo, translucentLinerMat);
+      outerCasing.position.set(-0.2, 0, 0);
+      nozzleGroup.add(outerCasing);
+
+      // 2. Convergent Flap Liner (Inlet +X to Throat at X = 0)
+      const convGeo = new THREE.CylinderGeometry(0.7, 1.15, 2.0, 28, 1, true);
+      convGeo.rotateZ(Math.PI / 2);
+      const convLiner = new THREE.Mesh(convGeo, bodyMat);
+      convLiner.position.set(1.0, 0, 0);
+      nozzleGroup.add(convLiner);
+
+      // 3. Divergent Flap Liner (Throat at X = 0 to Exit at -X)
+      const divGeo = new THREE.CylinderGeometry(1.18, 0.7, 1.8, 28, 1, true);
+      divGeo.rotateZ(Math.PI / 2);
+      const divLiner = new THREE.Mesh(divGeo, accentMat);
+      divLiner.position.set(-0.9, 0, 0);
+      nozzleGroup.add(divLiner);
+
+      // 4. Throat Constriction Ring (Mach 1.0 Choke Point)
+      const throatRingGeo = new THREE.TorusGeometry(0.7, 0.05, 12, 32);
+      throatRingGeo.rotateY(Math.PI / 2);
+      const throatRing = new THREE.Mesh(throatRingGeo, glowMat);
+      throatRing.position.set(0, 0, 0);
+      nozzleGroup.add(throatRing);
+
+      // 5. Compressor Bleed Air Inflow Manifold & Ports (Green)
+      const manifoldGeo = new THREE.TorusGeometry(1.25, 0.08, 12, 32);
+      manifoldGeo.rotateY(Math.PI / 2);
+      const manifold = new THREE.Mesh(manifoldGeo, greenMat);
+      manifold.position.set(1.6, 0, 0);
+      nozzleGroup.add(manifold);
+
+      // Secondary Bleed Injection Tubes (8 Radial Struts)
+      for (let i = 0; i < 8; i++) {
+        const angle = (i * Math.PI) / 4;
+        const tubeGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.35, 10);
+        const tube = new THREE.Mesh(tubeGeo, greenMat);
+        tube.position.set(1.6, Math.cos(angle) * 1.15, Math.sin(angle) * 1.15);
+        tube.rotation.x = angle;
+        nozzleGroup.add(tube);
+      }
+
+      // 6. Actuator Push-Rods for Divergent Nozzle Petals
+      for (let i = 0; i < 12; i++) {
+        const angle = (i * Math.PI) / 6;
+        const rodGeo = new THREE.CylinderGeometry(0.03, 0.03, 1.4, 8);
+        rodGeo.rotateZ(Math.PI / 2);
+        const rod = new THREE.Mesh(rodGeo, accentMat);
+        rod.position.set(-0.9, Math.cos(angle) * 1.25, Math.sin(angle) * 1.25);
+        nozzleGroup.add(rod);
+      }
+
+      scene.add(nozzleGroup);
+      currentObjectRef.current = nozzleGroup;
+
+    } else if (modelType === 'skid') {
+      // ----------------------------------------------------
+      // HELICOPTER SKID LANDING GEAR ASSEMBLY
+      // ----------------------------------------------------
+      setModelStats({
+        format: 'Autodesk Inventor CAD / Drop FEA',
+        triangles: 6240,
+        dims: '3.6m (L) × 2.2m (W) × 1.1m (H)'
+      });
+
+      const skidGroup = new THREE.Group();
+
+      // Forward & Aft Curved Cross-Tubes
+      const createCrossTube = (posX) => {
+        const tubeCurve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(posX, -0.9, -1.1),
+          new THREE.Vector3(posX, -0.2, -0.6),
+          new THREE.Vector3(posX, 0.1, 0),
+          new THREE.Vector3(posX, -0.2, 0.6),
+          new THREE.Vector3(posX, -0.9, 1.1)
+        ]);
+        const tubeGeo = new THREE.TubeGeometry(tubeCurve, 24, 0.08, 12, false);
+        return new THREE.Mesh(tubeGeo, bodyMat);
+      };
+
+      const forwardCrossTube = createCrossTube(1.2);
+      skidGroup.add(forwardCrossTube);
+
+      const aftCrossTube = createCrossTube(-1.2);
+      skidGroup.add(aftCrossTube);
+
+      // Left & Right Ground Contact Skids with Curved Upward Toes
+      const createSkidBeam = (posZ) => {
+        const skidCurve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(2.2, -0.5, posZ), // Curved front toe
+          new THREE.Vector3(1.7, -0.9, posZ),
+          new THREE.Vector3(0, -0.9, posZ),
+          new THREE.Vector3(-1.7, -0.9, posZ),
+          new THREE.Vector3(-2.0, -0.7, posZ) // Curved aft heel
+        ]);
+        const skidGeo = new THREE.TubeGeometry(skidCurve, 32, 0.09, 12, false);
+        return new THREE.Mesh(skidGeo, accentMat);
+      };
+
+      const leftSkid = createSkidBeam(-1.1);
+      skidGroup.add(leftSkid);
+
+      const rightSkid = createSkidBeam(1.1);
+      skidGroup.add(rightSkid);
+
+      // Cross-Tube Clamping Brackets & Dampener Bushings (Green)
+      const bracketGeo = new THREE.BoxGeometry(0.24, 0.24, 0.24);
+      [-1.2, 1.2].forEach((posX) => {
+        [-1.1, 1.1].forEach((posZ) => {
+          const bracket = new THREE.Mesh(bracketGeo, greenMat);
+          bracket.position.set(posX, -0.9, posZ);
+          skidGroup.add(bracket);
+        });
+      });
+
+      // Airframe Fuselage Mount Trunnions
+      const trunnionGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.3, 12);
+      const trunnion1 = new THREE.Mesh(trunnionGeo, glowMat);
+      trunnion1.position.set(1.2, 0.15, 0);
+      skidGroup.add(trunnion1);
+
+      const trunnion2 = new THREE.Mesh(trunnionGeo, glowMat);
+      trunnion2.position.set(-1.2, 0.15, 0);
+      skidGroup.add(trunnion2);
+
+      scene.add(skidGroup);
+      currentObjectRef.current = skidGroup;
+
+    } else if (modelType === 'jet') {
+      // ----------------------------------------------------
+      // SUPERSONIC INTERCEPTOR JET
+      // ----------------------------------------------------
       setModelStats({ format: 'Autodesk Inventor CAD (ADP)', triangles: 6420, dims: '19.5m (L) × 14.0m (W) × 4.2m (H)' });
       const jetGroup = new THREE.Group();
 
-      // Fuselage Center Body (Facing +X)
       const fuselageGeo = new THREE.ConeGeometry(0.8, 6.5, 16);
       fuselageGeo.rotateZ(-Math.PI / 2);
       const fuselage = new THREE.Mesh(fuselageGeo, bodyMat);
       fuselage.scale.set(1, 0.6, 1.2);
       jetGroup.add(fuselage);
 
-      // Cockpit Canopy
       const canopyGeo = new THREE.SphereGeometry(0.5, 16, 12);
       canopyGeo.scale(2.2, 0.7, 0.8);
-      const canopy = new THREE.Mesh(canopyGeo, glassMat);
+      const canopy = new THREE.Mesh(canopyGeo, translucentLinerMat);
       canopy.position.set(0.6, 0.45, 0);
       jetGroup.add(canopy);
 
-      // 45-Degree Swept Delta Wings
       const wingShape = new THREE.Shape();
       wingShape.moveTo(1.5, 0);
-      wingShape.lineTo(-2.0, 3.8); // Swept tip
-      wingShape.lineTo(-2.8, 3.8); // Trailing tip
-      wingShape.lineTo(-2.4, 0);   // Trailing root
+      wingShape.lineTo(-2.0, 3.8);
+      wingShape.lineTo(-2.8, 3.8);
+      wingShape.lineTo(-2.4, 0);
       wingShape.closePath();
 
       const extrudeSettings = { depth: 0.08, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 0.02, bevelThickness: 0.02 };
       const rightWingGeo = new THREE.ExtrudeGeometry(wingShape, extrudeSettings);
       rightWingGeo.rotateX(Math.PI / 2);
       const rightWing = new THREE.Mesh(rightWingGeo, accentMat);
-      rightWing.position.set(0, 0, 0);
       jetGroup.add(rightWing);
 
       const leftWingGeo = rightWingGeo.clone();
@@ -340,7 +522,6 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
       const leftWing = new THREE.Mesh(leftWingGeo, accentMat);
       jetGroup.add(leftWing);
 
-      // Twin Canted Vertical Stabilizers
       const finShape = new THREE.Shape();
       finShape.moveTo(0, 0);
       finShape.lineTo(-1.2, 1.6);
@@ -348,284 +529,199 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
       finShape.lineTo(-1.6, 0);
       finShape.closePath();
 
-      const finGeo = new THREE.ExtrudeGeometry(finShape, extrudeSettings);
-      const rightFin = new THREE.Mesh(finGeo, accentMat);
+      const rightFinGeo = new THREE.ExtrudeGeometry(finShape, extrudeSettings);
+      const rightFin = new THREE.Mesh(rightFinGeo, bodyMat);
       rightFin.position.set(-1.0, 0.2, 0.7);
-      rightFin.rotation.x = -0.25;
+      rightFin.rotation.z = -0.15;
       jetGroup.add(rightFin);
 
-      const leftFin = new THREE.Mesh(finGeo, accentMat);
+      const leftFin = new THREE.Mesh(rightFinGeo.clone(), bodyMat);
       leftFin.position.set(-1.0, 0.2, -0.7);
-      leftFin.rotation.x = 0.25;
+      leftFin.rotation.z = 0.15;
       jetGroup.add(leftFin);
 
-      // Dual Afterburner Exhaust Nozzles
-      const exhaustGeo = new THREE.CylinderGeometry(0.32, 0.35, 0.6, 16);
-      exhaustGeo.rotateZ(Math.PI / 2);
-      const exhaust1 = new THREE.Mesh(exhaustGeo, bodyMat);
-      exhaust1.position.set(-3.2, 0.05, 0.45);
-      jetGroup.add(exhaust1);
+      // Twin Reheat Exhaust Nozzles
+      const nozzleGeo = new THREE.CylinderGeometry(0.35, 0.42, 1.2, 16);
+      nozzleGeo.rotateZ(Math.PI / 2);
+      const noz1 = new THREE.Mesh(nozzleGeo, glowMat);
+      noz1.position.set(-3.2, 0, 0.45);
+      jetGroup.add(noz1);
 
-      const exhaust2 = new THREE.Mesh(exhaustGeo, bodyMat);
-      exhaust2.position.set(-3.2, 0.05, -0.45);
-      jetGroup.add(exhaust2);
-
-      // Glowing Exhaust Cores
-      const glowGeo = new THREE.RingGeometry(0.1, 0.28, 16);
-      glowGeo.rotateY(Math.PI / 2);
-      const glow1 = new THREE.Mesh(glowGeo, glowMat);
-      glow1.position.set(-3.51, 0.05, 0.45);
-      jetGroup.add(glow1);
-
-      const glow2 = new THREE.Mesh(glowGeo, glowMat);
-      glow2.position.set(-3.51, 0.05, -0.45);
-      jetGroup.add(glow2);
+      const noz2 = new THREE.Mesh(nozzleGeo.clone(), glowMat);
+      noz2.position.set(-3.2, 0, -0.45);
+      jetGroup.add(noz2);
 
       scene.add(jetGroup);
       currentObjectRef.current = jetGroup;
 
-    } else if (modelType === 'drone') {
-      setModelStats({ format: 'Autodesk Inventor Assembly', triangles: 8940, dims: '0.85m (Diagonal) × 0.32m (H)' });
-      const droneGroup = new THREE.Group();
-
-      // Central Hub Plates
-      const hubGeo = new THREE.CylinderGeometry(1.2, 1.2, 0.1, 16);
-      const topPlate = new THREE.Mesh(hubGeo, accentMat);
-      topPlate.position.y = exploded ? 0.9 : 0.15;
-      droneGroup.add(topPlate);
-
-      const bottomPlate = new THREE.Mesh(hubGeo, accentMat);
-      bottomPlate.position.y = exploded ? -0.9 : -0.15;
-      droneGroup.add(bottomPlate);
-
-      // Avionics Core Stack
-      const fcGeo = new THREE.BoxGeometry(0.8, 0.3, 0.8);
-      const fc = new THREE.Mesh(fcGeo, bodyMat);
-      droneGroup.add(fc);
-
-      // 4 Carbon Fiber Arms & Spinning Propellers
-      const armAngles = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
-      const armLength = 3.2;
-      const propellers = [];
-
-      armAngles.forEach((angle) => {
-        const armSubGroup = new THREE.Group();
-
-        const armGeo = new THREE.CylinderGeometry(0.09, 0.09, armLength, 12);
-        armGeo.rotateZ(Math.PI / 2);
-        const arm = new THREE.Mesh(armGeo, bodyMat);
-        arm.position.x = armLength / 2;
-        armSubGroup.add(arm);
-
-        const motorGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.4, 16);
-        const motor = new THREE.Mesh(motorGeo, accentMat);
-        motor.position.set(armLength, 0.2, 0);
-        armSubGroup.add(motor);
-
-        const propGeo = new THREE.BoxGeometry(1.6, 0.03, 0.18);
-        const prop = new THREE.Mesh(propGeo, glowMat);
-        prop.position.set(armLength, 0.45, 0);
-        armSubGroup.add(prop);
-        propellers.push(prop);
-
-        armSubGroup.rotation.y = angle;
-        if (exploded) {
-          armSubGroup.position.x = Math.cos(angle) * 0.7;
-          armSubGroup.position.z = Math.sin(angle) * 0.7;
-        }
-
-        droneGroup.add(armSubGroup);
-      });
-
-      propellersRef.current = propellers;
-
-      // Landing Skids
-      const skidGeo = new THREE.TorusGeometry(1.8, 0.06, 8, 24, Math.PI);
-      skidGeo.rotateX(Math.PI / 2);
-      const skid1 = new THREE.Mesh(skidGeo, bodyMat);
-      skid1.position.set(0, -1.2, 1.2);
-      skid1.rotation.y = Math.PI / 2;
-      droneGroup.add(skid1);
-
-      const skid2 = new THREE.Mesh(skidGeo, bodyMat);
-      skid2.position.set(0, -1.2, -1.2);
-      skid2.rotation.y = Math.PI / 2;
-      droneGroup.add(skid2);
-
-      scene.add(droneGroup);
-      currentObjectRef.current = droneGroup;
-
     } else if (modelType === 'airfoil') {
+      // ----------------------------------------------------
+      // NACA AIRFOIL SECTION
+      // ----------------------------------------------------
       setModelStats({ format: 'NACA 4-Digit Extrusion', triangles: 3200, dims: '1.0m (Chord) × 5.0m (Span)' });
-      const airfoilGroup = new THREE.Group();
-
       const airfoilShape = new THREE.Shape();
-      airfoilShape.moveTo(2.5, 0);
-      airfoilShape.bezierCurveTo(1.5, 0.4, 0.5, 0.6, -1.5, 0.5);
-      airfoilShape.bezierCurveTo(-2.4, 0.4, -2.6, 0.0, -2.5, -0.05);
-      airfoilShape.bezierCurveTo(-2.0, -0.3, 0.0, -0.25, 2.5, 0);
+      const numPoints = 40;
+      for (let i = 0; i <= numPoints; i++) {
+        const x = (i / numPoints);
+        const yt = 5 * 0.12 * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * Math.pow(x, 3) - 0.1015 * Math.pow(x, 4));
+        if (i === 0) airfoilShape.moveTo(x * 4 - 2, yt * 3);
+        else airfoilShape.lineTo(x * 4 - 2, yt * 3);
+      }
+      for (let i = numPoints; i >= 0; i--) {
+        const x = (i / numPoints);
+        const yt = 5 * 0.12 * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * Math.pow(x, 3) - 0.1015 * Math.pow(x, 4));
+        airfoilShape.lineTo(x * 4 - 2, -yt * 3);
+      }
       airfoilShape.closePath();
 
-      const wingExtrude = { depth: 5, bevelEnabled: true, bevelSegments: 3, steps: 1, bevelSize: 0.04, bevelThickness: 0.04 };
-      const wingGeo = new THREE.ExtrudeGeometry(airfoilShape, wingExtrude);
-      wingGeo.center();
-      const wingMesh = new THREE.Mesh(wingGeo, accentMat);
-      airfoilGroup.add(wingMesh);
+      const extrudeSettings = { depth: 5, bevelEnabled: false };
+      const foilGeo = new THREE.ExtrudeGeometry(airfoilShape, extrudeSettings);
+      foilGeo.center();
+      const foilMesh = new THREE.Mesh(foilGeo, accentMat);
+      foilMesh.rotation.y = Math.PI / 2;
 
-      const wireframeGeo = new THREE.WireframeGeometry(wingGeo);
-      const wireframeLines = new THREE.LineSegments(wireframeGeo, new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.25 }));
-      airfoilGroup.add(wireframeLines);
-
-      scene.add(airfoilGroup);
-      currentObjectRef.current = airfoilGroup;
+      scene.add(foilMesh);
+      currentObjectRef.current = foilMesh;
     }
   };
 
-  // Multi-Format Universal CAD Loader (.GLB, .GLTF, .STL, .OBJ)
+  // Custom File Uploader (.STL, .OBJ, .GLB)
   const handleFileUpload = (e) => {
-    const file = e.target.files?.[0];
+    const file = e.target.files[0];
     if (!file) return;
 
-    const ext = file.name.split('.').pop().toLowerCase();
     setLoading(true);
     setCustomFileName(file.name);
+    const scene = sceneRef.current;
+    const ext = file.name.split('.').pop().toLowerCase();
     const url = URL.createObjectURL(file);
 
     const onModelLoaded = (object3d, formatName) => {
       clearCurrentObject();
-
-      // Compute bounding box & dimensions
       const box = new THREE.Box3().setFromObject(object3d);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
+      const size = new THREE.Vector3();
+      box.getSize(size);
       const maxDim = Math.max(size.x, size.y, size.z);
-      const scale = 5.5 / (maxDim || 1);
-
+      const scale = 5.0 / (maxDim || 1);
       object3d.scale.set(scale, scale, scale);
-      object3d.position.sub(center.multiplyScalar(scale));
+      box.setFromObject(object3d);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      object3d.position.sub(center);
 
-      // Calculate triangle count
       let triCount = 0;
       object3d.traverse((child) => {
-        if (child.isMesh && child.geometry) {
-          if (child.geometry.index) {
-            triCount += child.geometry.index.count / 3;
-          } else if (child.geometry.attributes.position) {
-            triCount += child.geometry.attributes.position.count / 3;
-          }
-          if (wireframe) child.material.wireframe = true;
+        if (child.isMesh) {
+          triCount += child.geometry.attributes.position.count / 3;
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0xfacc15,
+            metalness: 0.8,
+            roughness: 0.25,
+            wireframe: wireframe
+          });
         }
       });
 
       setModelStats({
-        format: `${formatName.toUpperCase()} CAD Mesh`,
-        triangles: Math.round(triCount) || 12500,
+        format: formatName,
+        triangles: Math.round(triCount),
         dims: `${size.x.toFixed(2)}m × ${size.y.toFixed(2)}m × ${size.z.toFixed(2)}m`
       });
 
-      sceneRef.current.add(object3d);
+      scene.add(object3d);
       currentObjectRef.current = object3d;
       setLoading(false);
       setActiveModel('custom');
+      URL.revokeObjectURL(url);
     };
 
     if (ext === 'stl') {
       const loader = new STLLoader();
       loader.load(url, (geometry) => {
-        geometry.computeVertexNormals();
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0x38bdf8,
-          roughness: 0.25,
-          metalness: 0.85,
-          wireframe: wireframe
-        });
+        const mat = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.8, roughness: 0.25 });
         const mesh = new THREE.Mesh(geometry, mat);
         onModelLoaded(mesh, 'STL (Inventor/SolidWorks)');
-      }, undefined, (err) => {
-        console.error(err);
-        alert('Could not parse STL file. Please check CAD export settings.');
-        setLoading(false);
       });
-
     } else if (ext === 'obj') {
       const loader = new OBJLoader();
       loader.load(url, (obj) => {
-        obj.traverse((child) => {
-          if (child.isMesh) {
-            child.material = new THREE.MeshStandardMaterial({
-              color: 0x38bdf8,
-              roughness: 0.3,
-              metalness: 0.85,
-              wireframe: wireframe
-            });
-          }
-        });
         onModelLoaded(obj, 'OBJ Wavefront');
-      }, undefined, (err) => {
-        console.error(err);
-        alert('Could not parse OBJ file.');
-        setLoading(false);
       });
-
-    } else {
-      // Default to GLTF / GLB Loader
+    } else if (ext === 'glb' || ext === 'gltf') {
       const loader = new GLTFLoader();
       loader.load(url, (gltf) => {
         onModelLoaded(gltf.scene, 'GLTF / GLB');
-      }, undefined, (err) => {
-        console.error(err);
-        alert('Could not load 3D file. Supported formats: .GLB, .GLTF, .STL, .OBJ');
-        setLoading(false);
       });
     }
   };
 
   const captureSnapshot = () => {
-    if (!rendererRef.current) return;
-    const dataUrl = rendererRef.current.domElement.toDataURL('image/png');
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    const dataUrl = renderer.domElement.toDataURL('image/png');
     const link = document.createElement('a');
-    link.download = `logesh_${activeModel}_cad_render.png`;
+    link.download = `logesh_${activeModel}_propulsion_render.png`;
     link.href = dataUrl;
     link.click();
   };
 
   const resetCamera = () => {
-    if (cameraRef.current && controlsRef.current) {
-      cameraRef.current.position.set(9, 6, 11);
-      controlsRef.current.target.set(0, 0, 0);
-      controlsRef.current.update();
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (camera && controls) {
+      camera.position.set(7, 5, 9);
+      controls.target.set(0, 0, 0);
+      controls.update();
     }
   };
 
   return (
-    <div className="relative w-full h-[540px] rounded-3xl bg-[#080d1a] border border-sky-500/25 overflow-hidden shadow-2xl">
+    <div className="relative w-full h-[540px] rounded-3xl bg-[#060a07] border border-yellow-500/25 overflow-hidden shadow-2xl">
       
       {/* Top Controls Toolbar */}
       <div className="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
         
         {/* Model Switcher Buttons */}
-        <div className="flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 pointer-events-auto">
+        <div className="flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-950/90 backdrop-blur-md border border-yellow-500/30 pointer-events-auto">
           <button
-            onClick={() => setActiveModel('jet')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${activeModel === 'jet' ? 'bg-sky-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+            onClick={() => setActiveModel('nozzle')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all flex items-center gap-1 ${
+              activeModel === 'nozzle' ? 'bg-yellow-500 text-slate-950 font-bold shadow' : 'text-slate-300 hover:text-yellow-400'
+            }`}
           >
-            ✈️ 4.5-Gen Jet
+            <Flame className="w-3.5 h-3.5 text-amber-500" />
+            <span>Nozzle Bleed Air</span>
           </button>
           <button
-            onClick={() => setActiveModel('drone')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${activeModel === 'drone' ? 'bg-sky-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+            onClick={() => setActiveModel('skid')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all flex items-center gap-1 ${
+              activeModel === 'skid' ? 'bg-yellow-500 text-slate-950 font-bold shadow' : 'text-slate-300 hover:text-yellow-400'
+            }`}
           >
-            🛸 UAS Drone
+            <Shield className="w-3.5 h-3.5 text-green-400" />
+            <span>Helicopter Skid Gear</span>
+          </button>
+          <button
+            onClick={() => setActiveModel('jet')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
+              activeModel === 'jet' ? 'bg-yellow-500 text-slate-950 font-bold shadow' : 'text-slate-300 hover:text-yellow-400'
+            }`}
+          >
+            ✈️ Interceptor
           </button>
           <button
             onClick={() => setActiveModel('airfoil')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${activeModel === 'airfoil' ? 'bg-sky-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
+              activeModel === 'airfoil' ? 'bg-yellow-500 text-slate-950 font-bold shadow' : 'text-slate-300 hover:text-yellow-400'
+            }`}
           >
-            💨 NACA Airfoil
+            💨 Airfoil
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all flex items-center gap-1.5 ${activeModel === 'custom' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-cyan-400 hover:bg-slate-800'}`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all flex items-center gap-1.5 ${
+              activeModel === 'custom' ? 'bg-green-500 text-slate-950 font-bold' : 'text-green-400 hover:bg-slate-900'
+            }`}
             title="Upload any .STL, .OBJ, .GLB, or .GLTF file"
           >
             <Upload className="w-3.5 h-3.5" />
@@ -642,20 +738,11 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
 
         {/* Viewport Action Toggles */}
         <div className="flex items-center gap-2 pointer-events-auto">
-          {activeModel === 'drone' && (
-            <button
-              onClick={() => setExploded(!exploded)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-mono backdrop-blur-md border transition-all flex items-center gap-1.5 ${exploded ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' : 'bg-slate-900/80 text-slate-300 border-slate-700 hover:text-white'}`}
-              title="Explode Assembly"
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>{exploded ? 'Exploded: ON' : 'Explode CAD'}</span>
-            </button>
-          )}
-
           <button
             onClick={() => setWireframe(!wireframe)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-mono backdrop-blur-md border transition-all flex items-center gap-1.5 ${wireframe ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' : 'bg-slate-900/80 text-slate-300 border-slate-700 hover:text-white'}`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-mono backdrop-blur-md border transition-all flex items-center gap-1.5 ${
+              wireframe ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/50' : 'bg-slate-950/80 text-slate-300 border-slate-800 hover:text-white'
+            }`}
             title="Toggle Wireframe Mesh"
           >
             <Box className="w-3.5 h-3.5" />
@@ -664,16 +751,18 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
 
           <button
             onClick={() => setShowAirflow(!showAirflow)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-mono backdrop-blur-md border transition-all flex items-center gap-1.5 ${showAirflow ? 'bg-sky-500/20 text-sky-300 border-sky-500/50' : 'bg-slate-900/80 text-slate-400 border-slate-700 hover:text-white'}`}
-            title="Toggle Aerodynamic Wind Tunnel Streamlines"
+            className={`px-3 py-1.5 rounded-xl text-xs font-mono backdrop-blur-md border transition-all flex items-center gap-1.5 ${
+              showAirflow ? 'bg-green-500/20 text-green-300 border-green-500/50' : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-white'
+            }`}
+            title="Toggle Dual-Color Streamline Vectors (Yellow Core & Green Bleed Coolant)"
           >
             <Wind className="w-3.5 h-3.5" />
-            <span>Airflow: {showAirflow ? 'ON' : 'OFF'}</span>
+            <span>Flow: {showAirflow ? 'ON' : 'OFF'}</span>
           </button>
 
           <button
             onClick={captureSnapshot}
-            className="p-2 rounded-xl bg-slate-900/80 text-slate-300 hover:text-white border border-slate-700 transition-all"
+            className="p-2 rounded-xl bg-slate-950/80 text-slate-300 hover:text-yellow-400 border border-slate-800 transition-all"
             title="Download CAD Render Snapshot (PNG)"
           >
             <Camera className="w-3.5 h-3.5" />
@@ -681,7 +770,7 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
 
           <button
             onClick={resetCamera}
-            className="p-2 rounded-xl bg-slate-900/80 text-slate-300 hover:text-white border border-slate-700 transition-all"
+            className="p-2 rounded-xl bg-slate-950/80 text-slate-300 hover:text-yellow-400 border border-slate-800 transition-all"
             title="Reset Camera"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -693,24 +782,24 @@ export default function ThreeCanvas({ initialModel = 'jet' }) {
       {/* Loading Overlay */}
       {loading && (
         <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center">
-          <div className="w-10 h-10 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-xs font-mono text-cyan-300 mt-3 font-medium">Parsing CAD Geometry & Normals...</p>
+          <div className="w-10 h-10 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs font-mono text-yellow-300 mt-3 font-medium">Parsing CAD Geometry & Normals...</p>
         </div>
       )}
 
       {/* Bottom Telemetry HUD Overlay */}
       <div className="absolute bottom-4 left-4 z-20 pointer-events-none">
-        <div className="px-4 py-2.5 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-800 text-[11px] font-mono text-slate-400 space-y-1 shadow-xl">
-          <div className="text-cyan-400 font-bold flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-            <span>THREE.JS CAD VIEWPORT // {modelStats.format}</span>
+        <div className="px-4 py-2.5 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-yellow-500/30 text-[11px] font-mono text-slate-400 space-y-1 shadow-xl">
+          <div className="text-yellow-400 font-bold flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-ping"></span>
+            <span>THREE.JS PROPULSION VIEWPORT // {modelStats.format}</span>
           </div>
           <div className="flex items-center gap-4 text-slate-300">
             <span>Mesh: <strong className="text-white">{modelStats.triangles.toLocaleString()}</strong> Triangles</span>
-            <span>Dimensions: <strong className="text-sky-400">{modelStats.dims}</strong></span>
+            <span>Dimensions: <strong className="text-yellow-400">{modelStats.dims}</strong></span>
           </div>
           <div className="text-[10px] text-slate-500 flex items-center gap-3">
-            <span>Airflow: <strong className="text-cyan-300">{activeModel === 'drone' ? 'Downwash Wake (+Y → -Y)' : 'Nose to Tail (+X → -X)'}</strong></span>
+            <span>Flow Physics: <strong className="text-green-400">{activeModel === 'nozzle' ? 'Hot Core (Yellow) + Bleed Cooling (Green)' : 'Aerodynamic Streamlines'}</strong></span>
             <span>Supported: <strong className="text-slate-400">.STL | .OBJ | .GLB | .GLTF</strong></span>
           </div>
         </div>
